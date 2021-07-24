@@ -13,3 +13,7 @@ Please report the median time (with a confidence interval), total number of stud
 Of these variables,. which ones have the most impact on the time to obtain an internship, and in which direction: cohort, age, educational background, having or not having children.
 
 Bonus question: can you build a predictive model to identify students at high risk of a long search? How well does your model perform?
+
+
+This work is the deliverable of the final assignment of Survival Analysis class at DSTI
+
