@@ -1,5 +1,6 @@
 # Survival-Analysis
-Time series project for the Data Science Masters
+Survival Analysis project for the Data Science Masters.
+The main goal of this project is to analyis the time to internship for my school students, and how smoking would affect the duration.
 
 ## Project info
 
