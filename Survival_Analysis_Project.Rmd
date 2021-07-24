@@ -1,0 +1,344 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+
+
+# Installing the required libraries:
+
+```{r}
+#install.packages("lubridate")
+#install.packages("broom")
+#install.packages("survival")
+#install.packages("survminer")
+
+library(tidyverse)
+library(lubridate)
+library(broom)
+library(survival)
+library(survminer)
+
+```
+
+
+# Data Import:
+```{r}
+    setwd("C:/Users/Samer/Desktop/Survival_Analysis")
+   data <- read.csv('DSTI_survey.csv',header = TRUE)
+
+   # Data Exploraration
+   head(data)
+   str(data)
+   typeof(data)
+
+```
+# Data Cleaning and Preparation
+
+
+```{r}
+# Rename variables 
+names(data)[1]  = "srv_date"      #TimeStamp
+names(data)[2]  = "yob"           #Year of Birth
+names(data)[3]  = "smkr"          #Were you ever a smoker? 
+names(data)[4]  = "y_str_smk"     #Year when first started smoking
+names(data)[5]  = "y_stp_smk"     #Year when stopped smoking
+names(data)[6]  = "date_str_srch" #When did you start looking for an internship
+names(data)[7]  = "sex"           #Sex
+names(data)[8]  = "date_stp_srch" #When did you stopped looking for an internship
+names(data)[9]  = "fnd_intr"      #Have you found an internship?
+names(data)[10] = "edu"           #Education: background (pick a main one you identify with)
+names(data)[11] = "yoe"           #Years of education
+names(data)[12] = "children"      #Do you have children?
+names(data)[13] = "cohort"        #Cohort  
+
+head(data)
+```
+
+
+# Converting data to the correct format:
+
+```{r}
+
+# Convert Year to Date 
+data[,2]           = year(ymd(data[,2], truncated = 2L))
+data[,1]           = as_date(as.POSIXct(data[,1], format='%m/%d/%Y %H:%M'))
+data$y_str_smk     = year(ymd(data$y_str_smk, truncated = 2L))
+data$y_stp_smk     = year(ymd(data$y_stp_smk, truncated = 2L))
+data$date_str_srch = as_date(as.POSIXct(data$date_str_srch, format='%m/%d/%Y'))
+data$date_stp_srch = as_date(as.POSIXct(data$date_stp_srch, format='%m/%d/%Y'))
+
+# Convert Categorical Variables into Factors
+data$sex       = as.factor(data$sex) 
+#data$fnd_intr  = as.factor(data$fnd_intr) 
+data$children  = as.factor(data$children) 
+data$cohort    = as.factor(data$cohort) 
+
+# Turning smkr variable to binary with (yes,no)
+data$smkr= ifelse(data$smkr != "No", "Yes", data$smkr)
+data$smkr      = as.factor(data$smkr) 
+
+data$fnd_intr= ifelse(data$fnd_intr == "Yes", 1, 0)
+
+
+#Sanity Checks
+str(data)
+head(data)
+tail(data)
+data
+```
+
+
+```{r}
+# Cleaning up Education Variable
+data$edu= ifelse(data$edu == "Mathematics, Physics, Chemistry, Computer Science, Statistics", "math", data$edu)
+data$edu= ifelse(data$edu == "Medicine, Biology", "bio"                                             , data$edu)
+data$edu= ifelse(data$edu == "Literature, History, Philosophy", "lit"                               , data$edu)
+data$edu= ifelse(data$edu == "Finance, Economy", "fin"                                              , data$edu)
+data$edu= ifelse(data$edu == "Business, Management", "mgm"                                          , data$edu)
+data$edu= ifelse(data$edu == "Other", "oth"                                                         , data$edu)
+
+# Converting Education variable into factor
+data$edu= as.factor(data$edu) 
+
+#Sanity Checks
+head(data)
+tail(data)
+
+```
+
+
+# Creating censored Duration Variable 
+ As we want to analyze the time to internship
+ first we need the duration variable which will be the timestamp minus date when started search,
+ Noting that if the stop searching date is more that timestamp, we replaced it with the timestamp date instead.
+
+```{r}
+data$date_stp_srch= as.Date(ifelse(data$date_stp_srch > data$srv_date, data$srv_date, data$date_stp_srch), origin = "1970-01-01")
+```
+
+```{r}
+
+# Creating Search Duration Variable
+
+data$srch_dur=
+ifelse(data$fnd_intr == "1",
+ difftime(data$date_stp_srch, data$date_str_srch, units = "days"),
+ ifelse(is.na(data$date_stp_srch),
+ difftime(data$srv_date, data$date_str_srch, units = "days"),
+ difftime(data$date_stp_srch, data$date_str_srch, units = "days")))
+
+data$srch_dur
+
+```
+
+# Elemenation of obervations are not suitable to enter our model
+
+1. Remove students with no Start Date 
+```{r}
+# Removing Students with no Start Date
+data<-data[!(is.na(data$date_str_srch)), ]
+data
+
+
+```
+
+
+2. remove Students with Zero duration and found an Internship 
+
+```{r}
+#Students with Zero duration and found an Internship
+data<-data[!(data$srch_dur=="0" & data$fnd_intr=="1"),]
+data
+```
+
+3. Remove students with start date after Time stamp date, and this is based on their assupmtion not on reality,
+and this considered as Right cesoring which is not out of the scope of our analysis.
+
+```{r}
+# Remove people with Internship Yes and stop search date NA
+data<-data[!(data$date_str_srch > data$srv_date),]
+data
+```
+
+
+```{r}
+
+summary(data$srch_dur)
+hist(data$srch_dur)
+boxplot(data$srch_dur)
+```
+we can see some outliers here,
+the first try is to remove any observation more that 600 days of search duration
+
+```{r}
+# Remove observations with seaerch duration >500
+data<-data[!(data$srch_dur >= 500),]
+boxplot(data$srch_dur)
+data
+```
+
+
+# Q1. How many students partecipated in the interview?
+ 84 students 
+
+# Q2. After data preparation, how many samples are usable for data analysis? How many samples were dropped (if  any), and why?
+
+Raw Dataset included 84 rows, after processing, some of variables were dropped due to the following reasons:
+
+1. Students who don't have start search date (18 students)
+2. Students with Zero duration and found an Internship (1 student)
+3. students with start date after Time stamp date, and this is based on their assumption not on reality,
+and this considered as Right censoring which is not out of the scope of our analysis.(7 students)
+4. 2 outliers removed, search duration >500 days (2 students)
+
+The final number of students of samples usable for analysis is 54
+
+
+
+# Survival Function 
+
+Now since we defined our Censoring variable (fnd_intr) and Duration variable (srch_dur)
+we can start with the Survival Function
+
+```{r}
+# Surviaval Material
+srv_mat <- with(data, Surv(srch_dur ,fnd_intr))
+
+ KM <- survfit(srv_mat ~ 1, data = data)
+ KM
+ summary(KM)
+ 
+ plot(KM, 
+     # fun = "F",
+      main = "Kaplan-Meier estimator",
+      xlab = "Internship Search Duration (Days)", 
+      ylab = "Cumulated incidence of Students")
+```
+
+
+#FROM: cLASS 3 - 12:20
+
+#Q3.How long does it take to obtain an internship?
+#   Please report the median time (with a confidence interval), 
+#   total number of students at the baseline, 
+#   the total number of events observed, and the total number of censored observations.
+   
+1. Median is 92 days, 3 months approximately.
+with Confidence Interval of [61, 305]
+
+2. Total number of students at the baseline ?
+54 students
+
+3. Total Number of Events Obsereved = 23
+4. Total Number of Events Censored = 31
+  
+  
+  
+ 
+# Q4. Of these variables,. which ones have the most impact on the time to obtain an internship, and in which # direction: 
+# 1.cohort, 
+# 2.age, 
+# 3.educational background, 
+# 4.having or not having children.
+ 
+ 
+ 
+# 1. Analyzing by Cohort groups
+
+
+```{r}
+# Log Rank test - Cohort
+surv_cohort_LR <- survdiff(Surv(srch_dur ,fnd_intr) ~ cohort, data = data)
+surv_cohort_LR
+```
+Cohort is Significant (very small p-value)
+
+
+
+# 2. Analyzing by Age  groups
+
+We have to create the age variable, which will be the the timestamp (srv_date) minus year of birth
+then we will create age groups 
+
+
+```{r}
+#Calculating Age
+
+data$age = year(data$srv_date) - data$yob
+data$age
+summary(data$age)
+```
+Creating age groups:
+
+```{r}
+# Creating Age groups 
+
+data$age_gr= ifelse(between(data$age,20,29), "20-29",
+                    ifelse(between(data$age, 30, 39), "30-39",
+                           ifelse(between(data$age, 40, 49), "40-49",
+                                  ifelse(between(data$age, 50, 59), "50-59",
+                                                ifelse(data$age >59 , ">=60", "Error")))))
+data$age_gr
+
+```
+# Age Impact
+```{r}
+# Log Rank test - age
+surv_age_LR <- survdiff(Surv(srch_dur ,fnd_intr) ~ age_gr, data = data)
+surv_age_LR
+
+```
+
+
+# 3. Education Impact :
+
+```{r}
+# Log Rank test - Education
+surv_edu_LR <- survdiff(Surv(srch_dur ,fnd_intr) ~ edu, data = data)
+surv_edu_LR
+
+```
+
+
+# 3. Analyzing Children groups:
+
+```{r}
+# Log Rank test - Children
+surv_children_LR <- survdiff(Surv(srch_dur ,fnd_intr) ~ children, data = data)
+surv_children_LR
+
+```
+
+
+After analyzing the impact of (cohort, age, children, edcation background)
+it found that there is only Chorot is significent which p-value is <0.05
+
+
+
+# Mesuring Impact of the 4 Variables using coxph regression Model:
+
+```{r}
+
+coxph <- coxph(Surv(srch_dur ,fnd_intr) ~ cohort + age + edu + children, data = data)
+
+coxph
+summary(coxph)
+```
+
+The only significant variables are S20, S19, A20 according to the model, all other variables are not significent.
+
+
+
+# Bounus Question: Can you build a predictive model to identify students at high risk of a long search? How well does your model perform?"
+
+As we saw earlier, there are no enough relible signifecnt variables we could use to build a predective model, as cohort variable alone is not enough to explain or to pridect the time to internship.
+
+So, based on these factors and current data situation, it's not possible to build a predctive model.
+
+
+
+
+
+
+
